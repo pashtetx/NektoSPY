@@ -67,6 +67,8 @@ class Client:
                     continue
                 notice = Notice.parse(message)
                 if notice:
+                    if notice.name == "error.code":
+                        logging.critical(notice.params)
                     if notice.name == "auth.successToken":
                         self.id = notice.params.get("id")
                     callback = self.callbacks.get(notice.name)
