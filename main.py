@@ -1,174 +1,140 @@
-#говнокод писал @migainis и shw3pz @fuxsocy1
 import asyncio
+import aioconsole
+import eel
+import json
+import logging
+import os
+import sys
+import threading
+
 from nektome.client import Client
 from nektome.dialog import Dialog
 from nektome.messages.notice import Notice
-import aioconsole
-import logging
-import os
-import json
-import sys
-
-import eel
-import threading
 
 eel.init("web")
 
-IS_STARTED = False
-
 TOKEN_FILE = 'tokens.json'
-
 UNCOMPLETE_MESSAGES = []
 
-def load_tokens():
-    if os.path.exists(TOKEN_FILE):
-        with open(TOKEN_FILE, 'r') as f:
-            return json.load(f)
-    else:
+class BotManager:
+    def __init__(self):
+        self.male_client = None
+        self.female_client = None
+        self.is_started = False
+
+    def load_tokens(self):
+        if os.path.exists(TOKEN_FILE):
+            with open(TOKEN_FILE, 'r') as f:
+                return json.load(f)
         return None
 
-def save_tokens(tokens):
-    with open(TOKEN_FILE, 'w') as f:
-        json.dump(tokens, f)
+    def save_tokens(self, tokens):
+        with open(TOKEN_FILE, 'w') as f:
+            json.dump(tokens, f)
 
-async def get_token_input():
-    male_token = await aioconsole.ainput("Введите токен для мужского клиента: ")
-    female_token = await aioconsole.ainput("Введите токен для женского клиента: ")
-    tokens = {
-        'male_token': male_token
-        'female_token': female_token
-    }
-    save_tokens(tokens)
-    return tokens
+    async def get_token_input(self):
+        tokens = {
+            'male_token': await aioconsole.ainput("Введите токен для мужского клиента: "),
+            'female_token': await aioconsole.ainput("Введите токен для женского клиента: ")
+        }
+        self.save_tokens(tokens)
+        return tokens
 
-async def setup_clients():
-    tokens = load_tokens()
-    if not tokens:
-        tokens = await get_token_input()
+    async def setup_clients(self):
+        tokens = self.load_tokens()
+        if not tokens:
+            tokens = await self.get_token_input()
 
-    male_client = Client(tokens['male_token'],
-    female_client = Client(tokens['female_token']))
-    return male_client, female_client
+        self.male_client = Client(tokens['male_token'])
+        self.female_client = Client(tokens['female_token'])
 
-async def on_found(client: Client, notice: Notice) -> None:
-    print("Connected!")
-    logging.info(f"Client {client.token} connected with notice: {notice.params}")
-    client.open_dialog(Dialog(notice.params.get("id"), client))
-    delattr(client, "searching")
-    if hasattr(male_client, "dialog") and hasattr(female_client, "dialog"):
-        eel.appendMessage("OPEN", "Dialog started!")
-    
-    if len(UNCOMPLETE_MESSAGES) > 0:
-        print(UNCOMPLETE_MESSAGES)
+        self.register_callbacks(self.male_client, "M", "F")
+        self.register_callbacks(self.female_client, "F", "M")
+
+    def register_callbacks(self, client, my_sex, wish_sex):
+        client.add_callback("dialog.opened", self.on_found)
+        client.add_callback("auth.successToken", lambda c, n: self.on_start(c, n, my_sex, wish_sex))
+        client.add_callback("messages.new", self.on_message)
+        client.add_callback("dialog.closed", self.on_close)
+
+    async def on_found(self, client, notice):
+        logging.info(f"Client {client.token} connected with notice: {notice.params}")
+        client.open_dialog(Dialog(notice.params.get("id"), client))
+        if hasattr(self.male_client, "dialog") and hasattr(self.female_client, "dialog"):
+            eel.appendMessage("OPEN", "Dialog started!")
+
         for message in UNCOMPLETE_MESSAGES:
             await client.dialog.send_message(message)
 
-async def on_message(client: Client, notice: Notice) -> None:
-    logging.info(f"New message for client {client.token}: {notice.params}")
-    print(notice.params.get("message"))
-    if notice.params.get("senderId") == client.id:
-        return
-
-    if hasattr(client, "dialog"):
-        await client.dialog.read_message(notice.params.get("id"))
+    async def on_message(self, client, notice):
+        logging.info(f"New message for client {client.token}: {notice.params}")
         message = notice.params.get("message")
         
-        target_client = female_client if client == male_client else male_client
-        eel.appendMessage('F' if client == male_client else 'M', message)            
-        print(f"{'F' if client == male_client else 'M'}: {message}")
+        if notice.params.get("senderId") == client.id:
+            return
 
+        target_client = self.female_client if client == self.male_client else self.male_client
+        eel.appendMessage('F' if client == self.male_client else 'M', message)            
+        
         if hasattr(target_client, "dialog"):
             await target_client.dialog.send_message(message)
         else:
-            UNCOMPLETE_MESSAGES.append(notice.params.get("message"))
-    else:
-        logging.warning(f"Client {client.token} does not have an open dialog")
+            UNCOMPLETE_MESSAGES.append(message)
 
-async def on_start(client: Client, notice: Notice, my_sex: str, wish_sex: str) -> None:
-    logging.info(f"Start client with notice: {notice.params}")
-    if notice.params.get("statusInfo"):
-        client.open_dialog(Dialog(notice.params.get("statusInfo").get("anonDialogId"), client))
-        print(f"Close dialog ({'male' if client == male_client else 'female'})")
-    await client.close_dialog()
-    await client.search(my_sex=my_sex, wish_sex=wish_sex, wish_age=[[1, 17]], my_age=[1, 17])
+    async def on_start(self, client, notice, my_sex, wish_sex):
+        logging.info(f"Start client with notice: {notice.params}")
+        await client.close_dialog()
+        await client.search(my_sex=my_sex, wish_sex=wish_sex, wish_age=[[1, 17]], my_age=[1, 17])
 
-async def on_close(client: Client, notice: Notice) -> None:
-    UNCOMPLETE_MESSAGES.clear()
-    logging.info(f"Dialog closed for client {client.token}")
-    eel.appendMessage("CLOSED","Dialog closed")
-    print(f"Dialog closed for {'male' if client == male_client else 'female'} client")
+    async def on_close(self, client, notice):
+        UNCOMPLETE_MESSAGES.clear()
+        logging.info(f"Dialog closed for client {client.token}")
+        eel.appendMessage("CLOSED", "Dialog closed")
+        
+        target_client = self.female_client if client == self.male_client else self.male_client
+        client.remove_dialog()
 
-    target_client = female_client if client == male_client else male_client
+        if not hasattr(self.male_client, "dialog"):
+            await self.male_client.search(my_sex="M", wish_sex="F", wish_age=[[1, 17]], my_age=[1, 17])
+        if not hasattr(self.female_client, "dialog"):
+            await self.female_client.search(my_sex="M", wish_sex="F", wish_age=[[1, 17]], my_age=[1, 17])
 
-    client.remove_dialog()
+    async def send_all(self, message):
+        logging.info(f"Sending message: {message}")
+        eel.appendMessage("YOU", message)
+        if hasattr(self.male_client, "dialog"):
+            await self.male_client.dialog.send_message(message)
+        if hasattr(self.female_client, "dialog"):
+            await self.female_client.dialog.send_message(message)
 
-    if hasattr(target_client, "dialog"):
-        await target_client.close_dialog()
-    
-    if not hasattr(male_client, "dilog") and not hasattr(male_client, "searching"):
-        await male_client.search(my_sex="M", wish_sex="F", wish_age=[[1, 17]], my_age=[1, 17])
-    if not hasattr(female_client, "dialog") and not hasattr(female_client, "searching"):
-        await female_client.search(my_sex="M", wish_sex="F", wish_age=[[1, 17]], my_age=[1, 17])
+    async def wait_for_close(self):
+        while self.is_started:
+            await asyncio.sleep(1)
 
+    async def run(self):
+        await self.setup_clients()
+        await asyncio.gather(
+            self.male_client.connect(),
+            self.female_client.connect(),
+            self.wait_for_close()
+        )
 
-async def send_all(message: str) -> None:
-    print(f"YOU: {message}")
-    eel.appendMessage("YOU", message)
-    if hasattr(male_client, "dialog"):
-        await male_client.dialog.send_message(message)
-    if hasattr(female_client, "dialog"):
-        await female_client.dialog.send_message(message)
-
-async def wait_for_close():
-    while True:
-        if not IS_STARTED:
-            print(IS_STARTED)
-            sys.exit()
-        await asyncio.sleep(1)
-
-async def main():
-    global male_client, female_client
-    print("Starting main function")
-    logging.info("Starting main function")
-
-    asyncio.ensure_future(wait_for_close())
-    
-    male_client, female_client = await setup_clients()
-
-    male_client.add_callback("dialog.opened", on_found)
-    male_client.add_callback("auth.successToken", lambda client, notice: on_start(client, notice, "M", "F"))
-    male_client.add_callback("messages.new", on_message)
-    male_client.add_callback("dialog.closed", on_close)
-
-    female_client.add_callback("dialog.opened", on_found)
-    female_client.add_callback("auth.successToken", lambda client, notice: on_start(client, notice, "F", "M"))
-    female_client.add_callback("messages.new", on_message)
-    female_client.add_callback("dialog.closed", on_close)
-
-    await asyncio.gather(
-        male_client.connect(),
-        female_client.connect(),
-    )
-
-nektome_bot = threading.Thread(target=asyncio.run, args=(main(),))
+bot_manager = BotManager()
 
 @eel.expose
 def start_bots():
-    nektome_bot.start()
+    bot_manager.is_started = True
+    threading.Thread(target=lambda: asyncio.run(bot_manager.run())).start()
 
 @eel.expose
-def send(message: str) -> None:
-    asyncio.run(send_all(message))
+def send(message):
+    asyncio.run(bot_manager.send_all(message))
 
-def on_close_app(name: str, *args, **kwargs):
-    print(name, "closed")
-    global IS_STARTED
-    IS_STARTED = False
+def on_close_app(name, *args):
+    logging.info(f"Application {name} closed")
+    bot_manager.is_started = False
     sys.exit()
-
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s', filename='log.txt')
-    IS_STARTED = True
     eel.start("index.html", close_callback=on_close_app, size=(500, 700))
-
