@@ -1,4 +1,4 @@
-#говнокод писал @migainis и shw3pz @fuxsocy1
+# говнокод писал @migainis и shw3pz @fuxsocy1
 import asyncio
 from nektome.client import Client
 from nektome.dialog import Dialog
@@ -8,11 +8,11 @@ import logging
 import os
 import json
 from colorama import init, Fore
-from datetime import datetime 
+from datetime import datetime
 
 init(autoreset=True)
 
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(asctime)s - %(levelname)s - %(message)s', filename='log.txt')
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s', filename='log.txt')
 
 TOKEN_FILE = 'tokens.json'
 
