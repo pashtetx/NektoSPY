@@ -35,7 +35,7 @@ async def get_token_input():
     male_token = await aioconsole.ainput("Введите токен для мужского клиента: ")
     female_token = await aioconsole.ainput("Введите токен для женского клиента: ")
     tokens = {
-        'male_token': male_token,
+        'male_token': male_token
         'female_token': female_token
     }
     save_tokens(tokens)
