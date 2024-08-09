@@ -1,3 +1,4 @@
+# говнокод писал @migainis и shw3pz @fuxsocy1
 import asyncio
 import aioconsole
 import eel
@@ -6,6 +7,7 @@ import logging
 import os
 import sys
 import threading
+
 
 from nektome.client import Client
 from nektome.dialog import Dialog
@@ -68,6 +70,7 @@ class BotManager:
 
     async def on_message(self, client, notice):
         logging.info(f"New message for client {client.token}: {notice.params}")
+
         message = notice.params.get("message")
         
         if notice.params.get("senderId") == client.id:
