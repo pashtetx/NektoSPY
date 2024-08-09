@@ -46,8 +46,13 @@ async def setup_clients():
     if not tokens:
         tokens = await get_token_input()
 
+<<<<<<< HEAD
     male_client = Client(tokens['male_token'])
     female_client = Client(tokens['female_token'])
+=======
+    male_client = Client(tokens['male_token'],
+    female_client = Client(tokens['female_token']))
+>>>>>>> 78fd846 (update)
     return male_client, female_client
 
 async def on_found(client: Client, notice: Notice) -> None:
