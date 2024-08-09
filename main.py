@@ -7,8 +7,12 @@ import aioconsole
 import logging
 import os
 import json
+from colorama import init, Fore
+from datetime import datetime 
 
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s', filename='log.txt')
+init(autoreset=True)
+
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(asctime)s - %(levelname)s - %(message)s', filename='log.txt')
 
 TOKEN_FILE = 'tokens.json'
 
@@ -42,6 +46,15 @@ async def setup_clients():
     female_client = Client(tokens['female_token'])
     return male_client, female_client
 
+async def reconnect_and_search(client: Client, my_sex: str, wish_sex: str):
+    try:
+        if client.ws is None or client.ws.closed:
+            logging.info(f"Reconnecting {my_sex} client...")
+            await client.connect()
+        await client.search(my_sex=my_sex, wish_sex=wish_sex, wish_age=[[1, 17]], my_age=[1, 17])
+    except Exception as e:
+        logging.error(f"Error while reconnecting or searching: {e}")
+
 async def on_found(client: Client, notice: Notice) -> None:
     print("Connected!")
     logging.info(f"Client {client.token} connected with notice: {notice.params}")
@@ -59,7 +72,10 @@ async def on_message(client: Client, notice: Notice) -> None:
         target_client = female_client if client == male_client else male_client
         if hasattr(target_client, "dialog"):
             await target_client.dialog.send_message(message)
-            print(f"{'F' if client == male_client else 'M'}: {message}")
+            current_time = datetime.now().strftime('%H:%M:%S')
+            prefix = 'F' if client == male_client else 'M'
+            color = Fore.LIGHTMAGENTA_EX if prefix == 'F' else Fore.LIGHTBLUE_EX
+            print(f"{color}{prefix} | {current_time}: {message}")
     else:
         logging.warning(f"Client {client.token} does not have an open dialog")
 
@@ -67,22 +83,21 @@ async def on_start(client: Client, notice: Notice, my_sex: str, wish_sex: str) -
     logging.info(f"Start client with notice: {notice.params}")
     if notice.params.get("statusInfo"):
         client.open_dialog(Dialog(notice.params.get("statusInfo").get("anonDialogId"), client))
-        print(f"Close dialog ({'male' if client == male_client else 'female'})")
+    print(f"Close dialog ({Fore.LIGHTBLUE_EX}male{Fore.RESET})" if client == male_client else f"Close dialog ({Fore.LIGHTMAGENTA_EX}female{Fore.RESET})")
     await client.close_dialog()
-    await client.search(my_sex=my_sex, wish_sex=wish_sex, wish_age=[[1, 17]], my_age=[1, 17])
+    await reconnect_and_search(client, my_sex, wish_sex)
 
 async def on_close(client: Client, notice: Notice) -> None:
     logging.info(f"Dialog closed for client {client.token}")
-    print(f"Dialog closed for {'male' if client == male_client else 'female'} client")
+    client_type = f"{Fore.LIGHTBLUE_EX}male{Fore.RESET}" if client == male_client else f"{Fore.LIGHTMAGENTA_EX}female{Fore.RESET}"
+    print(f"Dialog closed for {client_type} client")
 
-    await male_client.close_dialog()
-    await female_client.close_dialog()
-    
-    await male_client.search(my_sex="M", wish_sex="F", wish_age=[[1, 17]], my_age=[1, 17])
-    await female_client.search(my_sex="F", wish_sex="M", wish_age=[[1, 17]], my_age=[1, 17])
+    await reconnect_and_search(male_client, "M", "F")
+    await reconnect_and_search(female_client, "F", "M")
 
 async def send_all(message: str) -> None:
-    print(f"YOU: {message}")
+    current_time = datetime.now().strftime('%H:%M:%S')
+    print(f"YOU | {current_time}: {message}")
     if hasattr(male_client, "dialog"):
         await male_client.dialog.send_message(message)
     if hasattr(female_client, "dialog"):
