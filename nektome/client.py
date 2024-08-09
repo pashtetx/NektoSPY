@@ -2,6 +2,7 @@ from .messages.action import Action
 from .messages.notice import Notice
 from typing import Callable, List
 import websockets
+import websockets_proxy
 import logging
 
 class Client:
@@ -11,8 +12,14 @@ class Client:
 
     ws_endpoint: str = "wss://im.nekto.me/socket.io/?EIO=3&transport=websocket"
 
-    def __init__(self, token: str) -> None:
+    def __init__(self, token: str, proxy: str = None) -> None:
+        """
+        proxyless_client = Client("your token")
+        proxy_client = Client("http://username:password@host:port")
+        """
+
         self.token = token
+        self.proxy = proxy
         self.callbacks = {}
 
     def add_callback(self, notice: str, callback: Callable) -> None:
@@ -54,24 +61,35 @@ class Client:
             "wishAge": wish_age,
         })
         await self.ws.send(action.to_string())
+        setattr(self, "searching", True)
         logging.info(f"Search started: my_sex={my_sex}, wish_sex={wish_sex}")
+
+    async def setup_client(self) -> None:
+        await self.login()
+        async for message in self.ws:
+            if message == "2":
+                await self.ws.send("2")
+                continue
+            notice = Notice.parse(message)
+            if notice:
+                print(notice.name)
+                if notice.name == "error.code":
+                    logging.critical(notice.params)
+                if notice.name == "auth.successToken":
+                    self.id = notice.params.get("id")
+                callback = self.callbacks.get(notice.name)
+                if callback:
+                    await callback(self, notice)
 
     async def connect(self) -> None:
         logging.info("Connecting to websocket")
-        async with websockets.connect(self.ws_endpoint, ping_interval=None) as connection:
-            self.ws = connection
-            await self.login()
-            async for message in connection:
-                if message == "2":
-                    await self.ws.send("2")
-                    continue
-                notice = Notice.parse(message)
-                if notice:
-                    if notice.name == "error.code":
-                        logging.critical(notice.params)
-                    if notice.name == "auth.successToken":
-                        self.id = notice.params.get("id")
-                    callback = self.callbacks.get(notice.name)
-                    if callback:
-                        await callback(self, notice)
-            logging.info("Connection closed")
+        if self.proxy:
+            proxy = websockets_proxy.Proxy.from_url(self.proxy)
+            async with websockets_proxy.proxy_connect(self.ws_endpoint, proxy=proxy, ping_timeout=None) as connection:
+                self.ws = connection
+                await self.setup_client()
+        else:
+            async with websockets.connect(self.ws_endpoint, ping_timeout=None) as connection:
+                self.ws = connection
+                await self.setup_client()
+        logging.info("Connection closed")

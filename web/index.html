@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NektoSpy Soft</title>
+
+    <script type="text/javascript" src="/eel.js"></script>
+</head>
+<body>
+
+    <style>
+        * {
+            font-family: sans-serif;
+        }
+
+        h1 {
+            color: white;
+        }
+
+        body {
+            background-color: 	#000000;
+            text-align: center;
+        }
+
+        .messages {
+            border-radius: 10px;
+            background-color: #3b3530;
+            min-height: 400px;
+            max-height: 400px;
+            padding: 5px;
+            overflow-y: scroll;
+            margin-bottom: 25px;
+        }
+
+        .message {
+            width: 100%;
+            height: 35px;
+        }
+
+        .F {
+            padding: 5px;
+            border-radius: 10px;
+            background-color: pink;
+            float: left;
+        }
+
+        .M {
+            max-width: 75%;
+            padding: 5px;
+            border-radius: 10px;
+            background-color: aqua;
+            float: right;
+        }
+
+        .YOU, .CLOSED, .OPEN, .START {
+            max-width: 75%;
+            padding: 5px;
+            border-radius: 10px;
+            background-color: gray;
+            margin: 0px auto;
+        }
+
+        #start {
+            width: 85%;
+            background-color: greenyellow;
+            color: green;
+            outline: none;
+            border: none;
+            font-size: 19px;
+            padding: 5px;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+
+        #start:disabled {
+            display: none;
+        }
+
+        #send-message-input {
+            width: 85%;
+            border: none;
+            padding: 10px;
+            border-radius: 5px;
+            background-color: #3b3530;
+            color: white;
+            margin-bottom: 10px;
+        }
+
+        #send-message-btn {
+            cursor: pointer;
+            width: 85%;
+            background-color: greenyellow;
+            color: green;
+            outline: none;
+            border: none;
+            font-size: 19px;
+            padding: 5px;
+            border-radius: 5px; 
+            margin-bottom: 10px;
+        }
+
+        #send-message-btn:disabled {
+            cursor: default;
+            opacity: .5;
+        }
+
+    </style>
+
+    <h1>NektoMeSpy</h1>
+
+    <div class="messages">
+    </div>
+
+    <input type="text" name="send-message" placeholder="Введите сообщение" id="send-message-input"><br>
+    <button id="send-message-btn" disabled>Send message</button>
+
+    <button id="start">Start</button>
+
+    <script>
+
+        let buttonStart = document.getElementById("start");
+
+        let isStarted = false;
+
+        let sendMessageInput = document.getElementById("send-message-input");
+        let sendMessageButton = document.getElementById("send-message-btn");
+
+        sendMessageButton.addEventListener("click", () => {
+            if (sendMessageInput.value == "") {
+                return;
+            }
+            eel.send(sendMessageInput.value);
+        })
+
+        buttonStart.addEventListener("click", (e) => {
+            if (!isStarted) {
+                eel.start_bots();
+                appendMessage("START", "Searching");
+            }
+            isStarted = true;
+            e.target.disabled = true;
+        })
+
+        let messagesContainer = document.getElementsByClassName("messages")[0];
+
+        eel.expose(appendMessage);
+
+        function appendMessage(sex, message) {
+
+            if (sex == "CLOSED") {
+                sendMessageButton.disabled = true;
+            } else if (sex == "OPEN") {
+                sendMessageButton.disabled = false;
+            }
+            
+            console.log(message)
+            let messageWrapElement = document.createElement("div");
+            messageWrapElement.classList.add("message");
+            let messageElement = document.createElement("div");
+            const node = document.createTextNode(`${sex}: ${message}`);
+            messageElement.classList.add(sex);
+            messageElement.appendChild(node);
+            messageWrapElement.appendChild(messageElement)
+            messagesContainer.appendChild(messageWrapElement);
+            messagesContainer.scrollTo(0, messagesContainer.scrollHeight)
+
+        }
+
+
+    </script>
+</body>
+</html>

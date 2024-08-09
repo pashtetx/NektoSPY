@@ -1,135 +1,143 @@
 # говнокод писал @migainis и shw3pz @fuxsocy1
 import asyncio
+import aioconsole
+import eel
+import json
+import logging
+import os
+import sys
+import threading
+
+
 from nektome.client import Client
 from nektome.dialog import Dialog
 from nektome.messages.notice import Notice
-import aioconsole
-import logging
-import os
-import json
-from colorama import init, Fore
-from datetime import datetime
 
-init(autoreset=True)
-
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s', filename='log.txt')
+eel.init("web")
 
 TOKEN_FILE = 'tokens.json'
+UNCOMPLETE_MESSAGES = []
 
-def load_tokens():
-    if os.path.exists(TOKEN_FILE):
-        with open(TOKEN_FILE, 'r') as f:
-            return json.load(f)
-    else:
+class BotManager:
+    def __init__(self):
+        self.male_client = None
+        self.female_client = None
+        self.is_started = False
+
+    def load_tokens(self):
+        if os.path.exists(TOKEN_FILE):
+            with open(TOKEN_FILE, 'r') as f:
+                return json.load(f)
         return None
 
-def save_tokens(tokens):
-    with open(TOKEN_FILE, 'w') as f:
-        json.dump(tokens, f)
+    def save_tokens(self, tokens):
+        with open(TOKEN_FILE, 'w') as f:
+            json.dump(tokens, f)
 
-async def get_token_input():
-    male_token = await aioconsole.ainput("Введите токен для мужского клиента: ")
-    female_token = await aioconsole.ainput("Введите токен для женского клиента: ")
-    tokens = {
-        'male_token': male_token,
-        'female_token': female_token
-    }
-    save_tokens(tokens)
-    return tokens
+    async def get_token_input(self):
+        tokens = {
+            'male_token': await aioconsole.ainput("Введите токен для мужского клиента: "),
+            'female_token': await aioconsole.ainput("Введите токен для женского клиента: ")
+        }
+        self.save_tokens(tokens)
+        return tokens
 
-async def setup_clients():
-    tokens = load_tokens()
-    if not tokens:
-        tokens = await get_token_input()
+    async def setup_clients(self):
+        tokens = self.load_tokens()
+        if not tokens:
+            tokens = await self.get_token_input()
 
-    male_client = Client(tokens['male_token'])
-    female_client = Client(tokens['female_token'])
-    return male_client, female_client
+        self.male_client = Client(tokens['male_token'])
+        self.female_client = Client(tokens['female_token'])
 
-async def reconnect_and_search(client: Client, my_sex: str, wish_sex: str):
-    try:
-        if client.ws is None or client.ws.closed:
-            logging.info(f"Reconnecting {my_sex} client...")
-            await client.connect()
-        await client.search(my_sex=my_sex, wish_sex=wish_sex, wish_age=[[1, 17]], my_age=[1, 17])
-    except Exception as e:
-        logging.error(f"Error while reconnecting or searching: {e}")
+        self.register_callbacks(self.male_client, "M", "F")
+        self.register_callbacks(self.female_client, "F", "M")
 
-async def on_found(client: Client, notice: Notice) -> None:
-    print("Connected!")
-    logging.info(f"Client {client.token} connected with notice: {notice.params}")
-    client.open_dialog(Dialog(notice.params.get("id"), client))
+    def register_callbacks(self, client, my_sex, wish_sex):
+        client.add_callback("dialog.opened", self.on_found)
+        client.add_callback("auth.successToken", lambda c, n: self.on_start(c, n, my_sex, wish_sex))
+        client.add_callback("messages.new", self.on_message)
+        client.add_callback("dialog.closed", self.on_close)
 
-async def on_message(client: Client, notice: Notice) -> None:
-    logging.info(f"New message for client {client.token}: {notice.params}")
-    if notice.params.get("senderId") == client.id:
-        return
+    async def on_found(self, client, notice):
+        logging.info(f"Client {client.token} connected with notice: {notice.params}")
+        client.open_dialog(Dialog(notice.params.get("id"), client))
+        if hasattr(self.male_client, "dialog") and hasattr(self.female_client, "dialog"):
+            eel.appendMessage("OPEN", "Dialog started!")
 
-    if hasattr(client, "dialog"):
-        await client.dialog.read_message(notice.params.get("id"))
+        for message in UNCOMPLETE_MESSAGES:
+            await client.dialog.send_message(message)
+
+    async def on_message(self, client, notice):
+        logging.info(f"New message for client {client.token}: {notice.params}")
+
         message = notice.params.get("message")
         
-        target_client = female_client if client == male_client else male_client
+        if notice.params.get("senderId") == client.id:
+            return
+
+        target_client = self.female_client if client == self.male_client else self.male_client
+        eel.appendMessage('F' if client == self.male_client else 'M', message)            
+        
         if hasattr(target_client, "dialog"):
             await target_client.dialog.send_message(message)
-            current_time = datetime.now().strftime('%H:%M:%S')
-            prefix = 'F' if client == male_client else 'M'
-            color = Fore.LIGHTMAGENTA_EX if prefix == 'F' else Fore.LIGHTBLUE_EX
-            print(f"{color}{prefix} | {current_time}: {message}")
-    else:
-        logging.warning(f"Client {client.token} does not have an open dialog")
+        else:
+            UNCOMPLETE_MESSAGES.append(message)
 
-async def on_start(client: Client, notice: Notice, my_sex: str, wish_sex: str) -> None:
-    logging.info(f"Start client with notice: {notice.params}")
-    if notice.params.get("statusInfo"):
-        client.open_dialog(Dialog(notice.params.get("statusInfo").get("anonDialogId"), client))
-    print(f"Close dialog ({Fore.LIGHTBLUE_EX}male{Fore.RESET})" if client == male_client else f"Close dialog ({Fore.LIGHTMAGENTA_EX}female{Fore.RESET})")
-    await client.close_dialog()
-    await reconnect_and_search(client, my_sex, wish_sex)
+    async def on_start(self, client, notice, my_sex, wish_sex):
+        logging.info(f"Start client with notice: {notice.params}")
+        await client.close_dialog()
+        await client.search(my_sex=my_sex, wish_sex=wish_sex, wish_age=[[1, 17]], my_age=[1, 17])
 
-async def on_close(client: Client, notice: Notice) -> None:
-    logging.info(f"Dialog closed for client {client.token}")
-    client_type = f"{Fore.LIGHTBLUE_EX}male{Fore.RESET}" if client == male_client else f"{Fore.LIGHTMAGENTA_EX}female{Fore.RESET}"
-    print(f"Dialog closed for {client_type} client")
+    async def on_close(self, client, notice):
+        UNCOMPLETE_MESSAGES.clear()
+        logging.info(f"Dialog closed for client {client.token}")
+        eel.appendMessage("CLOSED", "Dialog closed")
+        
+        target_client = self.female_client if client == self.male_client else self.male_client
+        client.remove_dialog()
 
-    await reconnect_and_search(male_client, "M", "F")
-    await reconnect_and_search(female_client, "F", "M")
+        if not hasattr(self.male_client, "dialog"):
+            await self.male_client.search(my_sex="M", wish_sex="F", wish_age=[[1, 17]], my_age=[1, 17])
+        if not hasattr(self.female_client, "dialog"):
+            await self.female_client.search(my_sex="M", wish_sex="F", wish_age=[[1, 17]], my_age=[1, 17])
 
-async def send_all(message: str) -> None:
-    current_time = datetime.now().strftime('%H:%M:%S')
-    print(f"YOU | {current_time}: {message}")
-    if hasattr(male_client, "dialog"):
-        await male_client.dialog.send_message(message)
-    if hasattr(female_client, "dialog"):
-        await female_client.dialog.send_message(message)
+    async def send_all(self, message):
+        logging.info(f"Sending message: {message}")
+        eel.appendMessage("YOU", message)
+        if hasattr(self.male_client, "dialog"):
+            await self.male_client.dialog.send_message(message)
+        if hasattr(self.female_client, "dialog"):
+            await self.female_client.dialog.send_message(message)
 
-async def input_wait():
-    while True:
-        if hasattr(male_client, "dialog") and hasattr(female_client, "dialog"):
-            await send_all(await aioconsole.ainput(">>> "))
-        await asyncio.sleep(1)
+    async def wait_for_close(self):
+        while self.is_started:
+            await asyncio.sleep(1)
 
-async def main():
-    global male_client, female_client
-    print("Starting main function")
-    logging.info("Starting main function")
-    
-    male_client, female_client = await setup_clients()
+    async def run(self):
+        await self.setup_clients()
+        await asyncio.gather(
+            self.male_client.connect(),
+            self.female_client.connect(),
+            self.wait_for_close()
+        )
 
-    male_client.add_callback("dialog.opened", on_found)
-    male_client.add_callback("auth.successToken", lambda client, notice: on_start(client, notice, "M", "F"))
-    male_client.add_callback("messages.new", on_message)
-    male_client.add_callback("dialog.closed", on_close)
+bot_manager = BotManager()
 
-    female_client.add_callback("dialog.opened", on_found)
-    female_client.add_callback("auth.successToken", lambda client, notice: on_start(client, notice, "F", "M"))
-    female_client.add_callback("messages.new", on_message)
-    female_client.add_callback("dialog.closed", on_close)
+@eel.expose
+def start_bots():
+    bot_manager.is_started = True
+    threading.Thread(target=lambda: asyncio.run(bot_manager.run())).start()
 
-    await asyncio.gather(
-        male_client.connect(),
-        female_client.connect(),
-        input_wait()
-    )
+@eel.expose
+def send(message):
+    asyncio.run(bot_manager.send_all(message))
 
-asyncio.run(main())
+def on_close_app(name, *args):
+    logging.info(f"Application {name} closed")
+    bot_manager.is_started = False
+    sys.exit()
+
+if __name__ == '__main__':
+    logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s', filename='log.txt')
+    eel.start("index.html", close_callback=on_close_app, size=(500, 700))

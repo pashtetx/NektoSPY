@@ -1,3 +1,5 @@
 python-dotenv
 websockets
+eel
+websockets_proxy
 aioconsole
