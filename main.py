@@ -140,4 +140,15 @@ def on_close_app(name, *args):
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s', filename='log.txt')
-    eel.start("index.html", close_callback=on_close_app, size=(500, 700))
+
+    try:
+        # Пытаемся запустить с Edge
+        eel.start("index.html", close_callback=on_close_app, size=(500, 700), mode='edge')
+    except EnvironmentError as e:
+        logging.error(f"Failed to start with Edge: {e}")
+        try:
+            # Если не удалось с Edge, пробуем с Firefox
+            eel.start("index.html", close_callback=on_close_app, size=(500, 700), mode='firefox')
+        except EnvironmentError as e:
+            logging.critical(f"Failed to start with Firefox as well: {e}")
+            sys.exit(1)
